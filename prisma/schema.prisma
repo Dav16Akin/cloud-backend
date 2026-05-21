@@ -9,14 +9,33 @@ datasource db {
 
 model User {
   id          String   @id @default(cuid())
-  fullName    String
+  firstName   String
+  lastName    String
   email       String   @unique
   password    String
+  phoneNumber String
+
+  companyName   String
+  address       String
+  country       String
+  city          String
+  postcode      String
+
   role        Role     @default(USER)
   verified    Boolean  @default(false)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  phoneNumber String
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
 }
 
 enum Role {

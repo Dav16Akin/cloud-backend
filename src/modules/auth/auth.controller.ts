@@ -1,9 +1,16 @@
 import { Request, Response } from "express";
-import { registerSchema } from "./auth.validations";
+import { loginSchema, registerSchema } from "./auth.validations";
 import { prisma } from "../../lib/prisma";
 import bcrypt from "bcryptjs";
 import { sendResp } from "../../utils/resp";
 import { HTTP_STATUS } from "../../utils/statusCodes";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+} from "../../lib/jwt";
+import { AuthRequest } from "../../middleware/auth.middleware";
+import { toSafeUser } from "../../utils/safeuser";
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -19,7 +26,18 @@ export const register = async (req: Request, res: Response) => {
       );
     }
 
-    const { fullName, email, phoneNumber, password } = parsed.data;
+    const {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      password,
+      companyName,
+      address,
+      country,
+      city,
+      postcode,
+    } = parsed.data;
 
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -33,29 +51,23 @@ export const register = async (req: Request, res: Response) => {
 
     const user = await prisma.user.create({
       data: {
-        fullName,
+        firstName,
+        lastName,
         email,
         phoneNumber,
         password: hashedPassword,
+
+        companyName,
+        address,
+        country,
+        city,
+        postcode,
       },
     });
 
-    const safeUser = {
-      id: user.id,
-      fullName: user.fullName,
+    return sendResp(res, HTTP_STATUS.CREATED, "Account created successfully", {
       email: user.email,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
-      verified: user.verified,
-      createdAt: user.createdAt,
-    };
-
-    return sendResp(
-      res,
-      HTTP_STATUS.CREATED,
-      "User created successfully",
-      safeUser,
-    );
+    });
   } catch (error) {
     return sendResp(
       res,
@@ -65,4 +77,140 @@ export const register = async (req: Request, res: Response) => {
       error instanceof Error ? error.message : "Unknown error",
     );
   }
+};
+
+export const getMe = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+
+    if (!user) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "user does not exists",
+        null,
+      );
+    }
+
+    const safeUser = toSafeUser(user);
+
+    return sendResp(res, HTTP_STATUS.OK, "", safeUser);
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong getting user",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const login = async (req: Request, res: Response) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Invalid input",
+        null,
+        parsed.error.issues.map((error) => error.message),
+      );
+    }
+
+    const { email, password } = parsed.data;
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found", null);
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Invalid credentials",
+        null,
+      );
+    }
+
+    if (isMatch) {
+      const accessToken = generateAccessToken(user.id);
+
+      const refreshToken = generateRefreshToken(user.id);
+
+      res.cookie("refreshToken", refreshToken, {
+        httpOnly: true, // JS cannot access this
+        secure: true, // HTTPS only
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      await prisma.refreshToken.create({
+        data: {
+          token: refreshToken,
+          userId: user.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      res.status(200).json({
+        accessToken,
+      });
+    }
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong login user",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const logout = async (req: Request, res: Response) => {
+  try {
+    const token = req.cookies.refreshToken;
+
+    await prisma.refreshToken.delete({ where: { token } });
+
+    res.clearCookie("refreshToken");
+    return sendResp(res, HTTP_STATUS.OK, "Logged out");
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong login user",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const refresh = async (req: Request, res: Response) => {
+  const token = req.cookies.refreshToken;
+
+  if (!token) {
+    return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "No refresh token");
+  }
+
+  const stored = await prisma.refreshToken.findUnique({ where: { token } });
+  if (!stored) {
+    return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "Invalid refresh token");
+  }
+
+  const payload = verifyRefreshToken(token);
+  if (!payload) {
+    return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "Expired or tampered");
+  }
+
+  const newAccessToken = generateAccessToken(payload.userId);
+
+  return sendResp(res, HTTP_STATUS.OK, "", { accessToken: newAccessToken });
 };
