@@ -11,6 +11,8 @@ import {
 } from "../../lib/jwt";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { toSafeUser } from "../../utils/safeuser";
+import { generateOTP, saveOTP } from "../../lib/otp";
+import { sendOTPEmail } from "../../lib/sendOTPEmail";
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -65,9 +67,17 @@ export const register = async (req: Request, res: Response) => {
       },
     });
 
-    return sendResp(res, HTTP_STATUS.CREATED, "Account created successfully", {
-      email: user.email,
-    });
+    console.log("📨 Attempting to send OTP to:", user.email);
+    const code = generateOTP();
+    await saveOTP(user.id, code);
+    await sendOTPEmail(user.email, code);
+    console.log("✅ OTP send function completed");
+
+    return sendResp(
+      res,
+      HTTP_STATUS.CREATED,
+      "Account created. Check your email for a verification code.",
+    );
   } catch (error) {
     return sendResp(
       res,
@@ -213,4 +223,58 @@ export const refresh = async (req: Request, res: Response) => {
   const newAccessToken = generateAccessToken(payload.userId);
 
   return sendResp(res, HTTP_STATUS.OK, "", { accessToken: newAccessToken });
+};
+
+export const verifyOTP = async (req: Request, res: Response) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Email and code are required",
+      );
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found");
+    }
+
+    if (user.verified) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User already verified");
+    }
+
+    const otp = await prisma.oTP.findFirst({
+      where: { userId: user.id, code },
+    });
+
+    if (!otp) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Invalid code");
+    }
+
+    if (otp.expiresAt < new Date()) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Code has expired");
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { verified: true },
+      }),
+      prisma.oTP.deleteMany({ where: { userId: user.id } }),
+    ]);
+
+    return sendResp(res, HTTP_STATUS.OK, "Email verified successfully");
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong verifying OTP",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
 };
