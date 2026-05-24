@@ -16,7 +16,7 @@ export const sendOTPEmail = async (email: string, code: string) => {
   await resend.emails.send({
     from: "onboarding@resend.dev",
     to: email,
-    subject: "Your verification code",
+    subject: "Your Nupat Cloud verification code",
     html: `
       <p>Your verification code is:</p>
       <h2>${code}</h2>

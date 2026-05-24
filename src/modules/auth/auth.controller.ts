@@ -1,5 +1,10 @@
 import { Request, Response } from "express";
-import { loginSchema, registerSchema } from "./auth.validations";
+import {
+  loginSchema,
+  registerSchema,
+  resendOTPSchema,
+  verifyOTPSchema,
+} from "./auth.validations";
 import { prisma } from "../../lib/prisma";
 import bcrypt from "bcryptjs";
 import { sendResp } from "../../utils/resp";
@@ -227,15 +232,18 @@ export const refresh = async (req: Request, res: Response) => {
 
 export const verifyOTP = async (req: Request, res: Response) => {
   try {
-    const { email, code } = req.body;
-
-    if (!email || !code) {
+    const parsed = verifyOTPSchema.safeParse(req.body);
+    if (!parsed.success) {
       return sendResp(
         res,
         HTTP_STATUS.BAD_REQUEST,
-        "Email and code are required",
+        "Invalid input",
+        null,
+        parsed.error.issues.map((error) => error.message),
       );
     }
+
+    const { email, code } = parsed.data;
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -273,6 +281,51 @@ export const verifyOTP = async (req: Request, res: Response) => {
       res,
       HTTP_STATUS.SERVER_ERROR,
       "Something went wrong verifying OTP",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const resendOTP = async (req: Request, res: Response) => {
+  try {
+    const parsed = resendOTPSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Invalid input",
+        null,
+        parsed.error.issues.map((error) => error.message),
+      );
+    }
+
+    const { email } = parsed.data;
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found");
+    }
+
+    if (user.verified) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User already verified");
+    }
+
+    const code = generateOTP();
+    await saveOTP(user.id, code);
+    await sendOTPEmail(user.email, code);
+
+    return sendResp(
+      res,
+      HTTP_STATUS.OK,
+      "OTP sent succesfully , check your email",
+    );
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong sending OTP",
       null,
       error instanceof Error ? error.message : "Unknown error",
     );

@@ -48,10 +48,6 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    if (!updatedUser) {
-      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found", null);
-    }
-
     return sendResp(
       res,
       HTTP_STATUS.OK,
@@ -128,11 +124,9 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
   try {
     const deletedUser = await prisma.user.delete({ where: { id: req.userId } });
 
-    if (!deletedUser) {
-      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found", null);
-    }
+    res.clearCookie("refreshToken");
 
-    return sendResp(res, HTTP_STATUS.NO_CONTENT, "User deleted", {
+    return sendResp(res, HTTP_STATUS.OK, "User deleted", {
       id: deletedUser.id,
       email: deletedUser.email,
     });
