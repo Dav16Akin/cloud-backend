@@ -1,4 +1,4 @@
-import { email, z } from "zod";
+import { z } from "zod";
 
 export const registerSchema = z.object({
   firstName: z.string().min(2, "Name is too short"),
@@ -37,3 +37,9 @@ export const verifyOTPSchema = z.object({
 export const resendOTPSchema = z.object({
   email: z.email("Invalid email"),
 });
+
+export const forgotPasswordSchema = z.object({
+  email: z.email("Invalid email"),
+});
+
+export const verifyResetPasswordOTPSchema = verifyOTPSchema.extend({});

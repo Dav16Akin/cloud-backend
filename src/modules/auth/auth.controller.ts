@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import {
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
   resendOTPSchema,
   verifyOTPSchema,
+  verifyResetPasswordOTPSchema,
 } from "./auth.validations";
 import { prisma } from "../../lib/prisma";
 import bcrypt from "bcryptjs";
@@ -12,12 +14,15 @@ import { HTTP_STATUS } from "../../utils/statusCodes";
 import {
   generateAccessToken,
   generateRefreshToken,
+  generateResetToken,
   verifyRefreshToken,
+  verifyResetToken,
 } from "../../lib/jwt";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { toSafeUser } from "../../utils/safeuser";
 import { generateOTP, saveOTP } from "../../lib/otp";
 import { sendOTPEmail } from "../../lib/sendOTPEmail";
+import { handleSendOTP } from "../../lib/sendOTP";
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -73,9 +78,7 @@ export const register = async (req: Request, res: Response) => {
     });
 
     console.log("📨 Attempting to send OTP to:", user.email);
-    const code = generateOTP();
-    await saveOTP(user.id, code);
-    await sendOTPEmail(user.email, code);
+    await handleSendOTP(user.id, user.email);
     console.log("✅ OTP send function completed");
 
     return sendResp(
@@ -305,27 +308,176 @@ export const resendOTP = async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found");
+      return sendResp(
+        res,
+        HTTP_STATUS.OK,
+        "If this email exists you will receive a code",
+      );
     }
 
     if (user.verified) {
       return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User already verified");
     }
 
-    const code = generateOTP();
-    await saveOTP(user.id, code);
-    await sendOTPEmail(user.email, code);
+    await handleSendOTP(user.id, user.email);
 
     return sendResp(
       res,
       HTTP_STATUS.OK,
-      "OTP sent succesfully , check your email",
+      "OTP sent successfully , check your email",
     );
   } catch (error) {
     return sendResp(
       res,
       HTTP_STATUS.SERVER_ERROR,
       "Something went wrong sending OTP",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Invalid input",
+        null,
+        parsed.error.issues.map((error) => error.message),
+      );
+    }
+
+    const { email } = parsed.data;
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return sendResp(
+        res,
+        HTTP_STATUS.OK,
+        "If this email exists you will receive a code",
+      );
+    }
+
+    if (!user.verified) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Account not verified");
+    }
+
+    await handleSendOTP(user.id, user.email);
+
+    return sendResp(
+      res,
+      HTTP_STATUS.OK,
+      "If this email exists you will receive a code",
+    );
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong sending OTP",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const verifyResetPasswordOTP = async (req: Request, res: Response) => {
+  try {
+    const parsed = verifyResetPasswordOTPSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Invalid input",
+        null,
+        parsed.error.issues.map((error) => error.message),
+      );
+    }
+
+    const { email, code } = parsed.data;
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Invalid code");
+    }
+
+    const otp = await prisma.oTP.findFirst({ where: { userId: user.id } });
+
+    if (!otp) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Invalid code");
+    }
+
+    if (otp.attempts >= 5) {
+      await prisma.oTP.delete({ where: { id: otp.id } });
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Too many attempts, request a new code",
+      );
+    }
+
+    if (otp.expiresAt < new Date()) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Code has expired");
+    }
+
+    if (otp.code !== code) {
+      await prisma.oTP.update({
+        where: { id: otp.id },
+        data: { attempts: { increment: 1 } },
+      });
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Invalid code");
+    }
+
+    await prisma.oTP.deleteMany({ where: { userId: user.id } });
+
+    const resetToken = generateResetToken(user.id);
+
+    return sendResp(res, HTTP_STATUS.OK, "OTP verified", { resetToken });
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+
+    const payload = verifyResetToken(resetToken);
+    if (!payload) {
+      return sendResp(
+        res,
+        HTTP_STATUS.UNAUTHORIZED,
+        "Invalid or expired reset token",
+      );
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: payload.userId },
+        data: { password: hashedPassword },
+      }),
+      prisma.refreshToken.deleteMany({ where: { userId: payload.userId } }),
+    ]);
+
+    return sendResp(res, HTTP_STATUS.OK, "Password reset successfully");
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong",
       null,
       error instanceof Error ? error.message : "Unknown error",
     );

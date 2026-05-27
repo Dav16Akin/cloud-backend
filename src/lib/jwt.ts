@@ -10,6 +10,19 @@ export const generateRefreshToken = (userId: string) => {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "7d" });
 };
 
+export const generateResetToken = (userId: string) => {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "10m" });
+};
+
+export const verifyResetToken = (token: string): { userId: string } | null => {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as { userId: string };
+    return payload;
+  } catch (error) {
+    return null;
+  }
+};
+
 export const verifyRefreshToken = (
   token: string,
 ): { userId: string } | null => {
