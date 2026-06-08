@@ -16,7 +16,11 @@ app.use(morgan("dev"));
 
 app.use(
   cors({
-    origin: "http://localhost:3000", // your frontend URL
+    origin:  [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://www.nupatcloud.com",
+    ], // your frontend URL
     credentials: true,
   }),
 );
