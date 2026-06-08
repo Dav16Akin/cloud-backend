@@ -7,6 +7,7 @@ datasource db {
   provider = "postgresql"
 }
 
+//USER
 model User {
   id          String   @id @default(cuid())
   firstName   String
@@ -27,6 +28,13 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   otps        OTP[]
+  hostingAccounts HostingAccount[]
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPPORT
 }
 
 model RefreshToken {
@@ -49,8 +57,50 @@ model OTP {
   attempts  Int @default(0)
 }
 
-enum Role {
-  USER
-  ADMIN
-  SUPPORT
+//PLAN
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   // "Starter" | "Business" | "Agency"
+  price       Float    // in Naira
+  billingCycle String  // "yearly"
+  storage     String   // "2GB SSD"
+  bandwidth   String   // "10GB"
+  websites    Int      // 1, 5, unlimited = 999
+  emails      Int      // 2, 10, unlimited = 999
+  features    String[] // array of feature strings
+  isPopular   Boolean  @default(false) // highlights Business plan
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  hostingAccounts HostingAccount[]
+}
+
+
+//HOSTING
+model HostingAccount {
+  id            String   @id @default(cuid())
+  userId        String
+  planId        String
+  
+  // cPanel account details
+  cpanelUsername String  @unique
+  domain         String  @unique
+  serverIp       String
+  
+  status        HostingStatus @default(ACTIVE)
+  expiresAt     DateTime
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan          Plan     @relation(fields: [planId], references: [id])
+}
+
+
+enum HostingStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+  PENDING
 }

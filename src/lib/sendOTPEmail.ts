@@ -2,13 +2,13 @@ import { transporter } from "./mailer";
 
 import { Resend } from "resend";
 
-transporter.verify((error: any) => {
-  if (error) {
-    console.error("❌ Mail server connection failed:", error);
-  } else {
-    console.log("✅ Mail server connected");
-  }
-});
+// transporter.verify((error: any) => {
+//   if (error) {
+//     console.error("❌ Mail server connection failed:", error);
+//   } else {
+//     console.log("✅ Mail server connected");
+//   }
+// });
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 

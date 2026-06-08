@@ -20,8 +20,6 @@ import {
 } from "../../lib/jwt";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { toSafeUser } from "../../utils/safeuser";
-import { generateOTP, saveOTP } from "../../lib/otp";
-import { sendOTPEmail } from "../../lib/sendOTPEmail";
 import { handleSendOTP } from "../../lib/sendOTP";
 
 export const register = async (req: Request, res: Response) => {
