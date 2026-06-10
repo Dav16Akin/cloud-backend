@@ -8,7 +8,6 @@ import whmClient from "../../../lib/whm";
 import crypto from "crypto";
 import { provisionHostingSchema } from "../validations/account.validations";
 
-
 export const provisionHosting = async (req: AuthRequest, res: Response) => {
   try {
     const parsed = provisionHostingSchema.safeParse(req.body);
@@ -37,6 +36,23 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
       return sendResp(res, HTTP_STATUS.NOT_FOUND, "User not found");
     }
 
+    const paidOrder = await prisma.order.findFirst({
+      where: {
+        userId: req.userId!,
+        planId: parsed.data.planId,
+        status: "PAID",
+        hostingAccount: null, // not yet provisioned
+      },
+    });
+
+    if (!paidOrder) {
+      return sendResp(
+        res,
+        HTTP_STATUS.FORBIDDEN,
+        "You need a paid order to provision hosting",
+      );
+    }
+
     const existingDomain = await prisma.hostingAccount.findUnique({
       where: { domain },
     });
@@ -49,6 +65,7 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
       user.firstName,
       user.lastName,
     );
+    
     const cpanelPassword =
       crypto.randomBytes(12).toString("base64").slice(0, 12) + "A1!";
 
@@ -82,6 +99,11 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
         serverIp: process.env.WHM_HOST!,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
       },
+    });
+
+    await prisma.order.update({
+      where: { id: paidOrder.id },
+      data: { hostingAccount: { connect: { id: hostingAccount.id } } },
     });
 
     return sendResp(res, HTTP_STATUS.CREATED, "Hosting account created", {

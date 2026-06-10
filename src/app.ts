@@ -9,6 +9,7 @@ import authRoutes from "./modules/auth/auth.route";
 import userRoutes from "./modules/users/user.route";
 import planRoutes from "./modules/plans/plans.route";
 import hostingRoutes from "./modules/hosting/hosting.route";
+import orderRoutes from "./modules/orders/order.route";
 
 const app = express();
 
@@ -16,7 +17,7 @@ app.use(morgan("dev"));
 
 app.use(
   cors({
-    origin:  [
+    origin: [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
       "https://www.nupatcloud.com",
@@ -24,6 +25,16 @@ app.use(
     credentials: true,
   }),
 );
+
+app.use(
+  "/api/orders/webhook",
+  express.raw({ type: "application/json" }),
+  (req: any, res, next) => {
+    req.body = JSON.parse(req.body);
+    next();
+  },
+);
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -31,5 +42,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api", hostingRoutes);
+app.use("/api", orderRoutes);
 
 export default app;
