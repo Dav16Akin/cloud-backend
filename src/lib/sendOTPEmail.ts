@@ -14,7 +14,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendOTPEmail = async (email: string, code: string) => {
   await resend.emails.send({
-    from: "onboarding@resend.dev",
+    from: "Nupat Cloud <noreply@nupatcloud.com>",
     to: email,
     subject: "Your Nupat Cloud verification code",
     html: `
