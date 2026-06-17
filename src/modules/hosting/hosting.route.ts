@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { protect } from "../../middleware/auth.middleware";
 import {
+  deleteHostingById,
   getHostingById,
   getHostings,
   getStats,
   provisionHosting,
+  suspendHosting,
+  unsuspendHosting,
 } from "./controllers/account.controller";
 import {
   changeHostingEmailPassword,
@@ -19,96 +22,24 @@ import { assignUserToDatabase, createDatabase, createDatabaseUser, deleteDatabas
 import { createDNSRecord, deleteDNSRecord, getDNSRecords, updateDNSRecord } from "./stats/dns.controller";
 
 const router = Router();
-/**
- * @swagger
- * /api/hosting:
- *   get:
- *     summary: Get all hosting accounts for the authenticated user
- *     tags: [Hosting]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Hosting accounts returned successfully
- *       404:
- *         description: No hosting accounts found
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
 
 router.get("/hosting", protect, getHostings);
 
-/**
- * @swagger
- * /api/hosting/{id}:
- *   get:
- *     summary: Get a hosting account by id
- *     tags: [Hosting]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Hosting account id
- *     responses:
- *       200:
- *         description: Hosting account returned successfully
- *       404:
- *         description: Hosting not found
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-
 router.get("/hosting/:id", protect, getHostingById);
 
-/**
- * @swagger
- * /api/hosting:
- *   post:
- *     summary: Provision a new hosting account
- *     tags: [Hosting]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - planId
- *               - domain
- *             properties:
- *               planId:
- *                 type: string
- *               domain:
- *                 type: string
- *                 example: example.com
- *     responses:
- *       201:
- *         description: Hosting account created
- *       400:
- *         description: Invalid input
- *       404:
- *         description: Plan or user not found
- *       409:
- *         description: Domain is already in use
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
+router.delete("/hosting/:id", protect, deleteHostingById)
+
+router.post("/hosting/:id/suspend", protect, suspendHosting)
+
+router.post("/hosting/:id/unsuspend", protect, unsuspendHosting)
 
 router.post("/hosting", protect, provisionHosting);
 
 router.get("/hosting/:id/stats", protect, getStats);
+
+
+
+//EMAILS
 
 router.get(
   "/hosting/:id/emails/forwarders",
@@ -141,7 +72,7 @@ router.patch(
 );
 
 
-
+//DATAASES
 // specific routes first
 router.get("/hosting/:id/databases/users", protect, getDatabaseUsers);
 router.post("/hosting/:id/databases/users", protect, createDatabaseUser);

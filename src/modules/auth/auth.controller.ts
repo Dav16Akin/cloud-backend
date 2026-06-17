@@ -21,6 +21,7 @@ import {
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { toSafeUser } from "../../utils/safeuser";
 import { handleSendOTP } from "../../lib/sendOTP";
+import { createWhmcsClient } from '../../lib/whmcs';
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -45,6 +46,7 @@ export const register = async (req: Request, res: Response) => {
       companyName,
       address,
       country,
+      state,
       city,
       postcode,
     } = parsed.data;
@@ -71,9 +73,33 @@ export const register = async (req: Request, res: Response) => {
         address,
         country,
         city,
+        state,
         postcode,
       },
     });
+
+    try {
+      const whmcsClientId = await createWhmcsClient({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        companyName: user.companyName,
+        address: user.address,
+        state: user.state,
+        city: user.city,
+        country: user.country,
+        postcode: user.postcode,
+      });
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { whmcsClientId },
+      });
+    } catch (whmcsError) {
+      // Don't fail registration if WHMCS sync fails
+      console.error("WHMCS sync failed:", whmcsError);
+    }
 
     console.log("📨 Attempting to send OTP to:", user.email);
     await handleSendOTP(user.id, user.email);

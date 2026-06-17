@@ -1,8 +1,6 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import swaggerUi from "swagger-ui-express";
-import { swaggerSpec } from "./lib/swagger";
 const morgan: any = require("morgan");
 
 import authRoutes from "./modules/auth/auth.route";
@@ -10,6 +8,8 @@ import userRoutes from "./modules/users/user.route";
 import planRoutes from "./modules/plans/plans.route";
 import hostingRoutes from "./modules/hosting/hosting.route";
 import orderRoutes from "./modules/orders/order.route";
+import domainRoutes from "./modules/domains/domains.route"
+import billingRoutes from "./modules/billing/billing.routes"
 
 const app = express();
 
@@ -43,5 +43,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api", hostingRoutes);
 app.use("/api", orderRoutes);
+app.use("/api", domainRoutes)
+app.use('/api/billing', billingRoutes);
 
 export default app;

@@ -24,7 +24,7 @@ export const getPlans = async (req: Request, res: Response) => {
 
 export const getPlan = async (req: Request, res: Response) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { id } = req.params as { id: string };
 
     const plan = await prisma.plan.findUnique({ where: { id } });
 

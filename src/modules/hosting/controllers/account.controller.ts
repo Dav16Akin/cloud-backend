@@ -133,7 +133,7 @@ export const getHostings = async (req: AuthRequest, res: Response) => {
       include: { plan: true },
     });
     if (hostings.length === 0) {
-      return sendResp(res, HTTP_STATUS.NOT_FOUND, "No hosting accounts found");
+      return sendResp(res, HTTP_STATUS.OK, "No hosting accounts found");
     }
     return sendResp(res, HTTP_STATUS.OK, "", hostings);
   } catch (error) {

@@ -9,6 +9,7 @@ export const registerSchema = z.object({
   companyName: z.string(),
   address: z.string(),
   country: z.string(),
+  state: z.string(),
   city: z.string(),
   postcode: z.string(),
 });

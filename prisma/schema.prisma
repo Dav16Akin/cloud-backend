@@ -20,7 +20,10 @@ model User {
   address       String
   country       String
   city          String
+  state         String
   postcode      String
+
+  whmcsClientId Int? 
 
   role        Role     @default(USER)
   verified    Boolean  @default(false)
