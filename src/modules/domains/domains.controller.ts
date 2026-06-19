@@ -170,32 +170,32 @@ export const registerDomain = async (req: AuthRequest, res: Response) => {
     const pricePaidPlaceholder = calculateRetailPriceNGN(0, "USD"); // TODO replace with real charged amount
 
     // 8. Save to our DB
-    const domainRecord = await prisma.domain.create({
-      data: {
-        userId: user.id,
-        name: domain,
-        extension,
-        openproviderId: result.openproviderId,
-        authCode: result.authCode,
-        status: result.status === "ACT" ? "ACTIVE" : "PENDING",
-        nameservers: nameservers ?? [],
-        registeredAt: new Date(result.activationDate),
-        expiresAt: new Date(result.expirationDate),
-        pricePaid: pricePaidPlaceholder,
-      },
-    });
+    // const domainRecord = await prisma.domain.create({
+    //   data: {
+    //     userId: user.id,
+    //     name: domain,
+    //     extension,
+    //     openproviderId: result.openproviderId,
+    //     authCode: result.authCode,
+    //     status: result.status === "ACT" ? "ACTIVE" : "PENDING",
+    //     nameservers: nameservers ?? [],
+    //     registeredAt: new Date(result.activationDate),
+    //     expiresAt: new Date(result.expirationDate),
+    //     pricePaid: pricePaidPlaceholder,
+    //   },
+    // });
 
-    return sendResp(
-      res,
-      HTTP_STATUS.CREATED,
-      "Domain registered successfully",
-      {
-        id: domainRecord.id,
-        domain: domainRecord.name,
-        status: domainRecord.status,
-        expiresAt: domainRecord.expiresAt,
-      },
-    );
+    // return sendResp(
+    //   res,
+    //   HTTP_STATUS.CREATED,
+    //   "Domain registered successfully",
+    //   {
+    //     id: domainRecord.id,
+    //     domain: domainRecord.name,
+    //     status: domainRecord.status,
+    //     expiresAt: domainRecord.expiresAt,
+    //   },
+    // );
   } catch (error) {
     return sendResp(
       res,
