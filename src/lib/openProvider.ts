@@ -46,4 +46,61 @@ export const openproviderRequest = async (
   });
 };
 
+export const createOpenProviderCustomerHandle = async (user: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string;
+  streetAddress: string; // street name only, no house number
+  houseNumber: string; // separate field — OpenProvider requires this split
+  city: string;
+  state: string;
+  countryCode: string; // ISO code, e.g. "NG"
+  postcode: string;
+  companyName?: string;
+}): Promise<string> => {
+  const response = await openproviderRequest("POST", "/customers", {
+    name: {
+      first_name: user.firstName,
+      last_name: user.lastName,
+      full_name: `${user.firstName} ${user.lastName}`,
+    },
+    email: user.email,
+    phone: {
+      country_code: "+234", // hardcoded for Nigeria — revisit if you expand countries
+      area_code: "0",
+      subscriber_number: user.phoneNumber.replace(/\D/g, "").slice(-10),
+    },
+    address: {
+      street: user.streetAddress,
+      number: user.houseNumber,
+      city: user.city,
+      state: user.state,
+      zipcode: user.postcode,
+      country: user.countryCode,
+    },
+    company_name: user.companyName || undefined,
+  });
+
+  const handle = response.data?.data?.handle;
+  if (!handle) {
+    throw new Error("OpenProvider did not return a customer handle");
+  }
+  return handle as string;
+};
+
+export const registerDomainWithOpenProvider = async ({
+  domainName,
+  extension,
+  ownerHandle,
+  nameservers,
+}: {
+  domainName: string;
+  extension: string;
+  ownerHandle: string;
+  nameservers: string[] | undefined;
+}) => {
+  const response = await openproviderRequest("POST", "/")
+};
+
 export default openproviderClient;

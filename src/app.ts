@@ -10,6 +10,7 @@ import hostingRoutes from "./modules/hosting/hosting.route";
 import orderRoutes from "./modules/orders/order.route";
 import domainRoutes from "./modules/domains/domains.route"
 import billingRoutes from "./modules/billing/billing.routes"
+import { startTokenCleanupJob } from "./jobs/cleanupExpiredTokens";
 
 const app = express();
 
@@ -37,6 +38,8 @@ app.use(
 
 app.use(express.json());
 app.use(cookieParser());
+
+startTokenCleanupJob();
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);

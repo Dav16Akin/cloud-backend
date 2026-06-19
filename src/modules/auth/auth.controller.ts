@@ -45,6 +45,7 @@ export const register = async (req: Request, res: Response) => {
       password,
       companyName,
       address,
+      houseNumber,
       country,
       state,
       city,
@@ -71,6 +72,7 @@ export const register = async (req: Request, res: Response) => {
 
         companyName,
         address,
+        houseNumber,
         country,
         city,
         state,
@@ -151,7 +153,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
 export const login = async (req: Request, res: Response) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
-
+ 
     if (!parsed.success) {
       return sendResp(
         res,
@@ -161,17 +163,17 @@ export const login = async (req: Request, res: Response) => {
         parsed.error.issues.map((error) => error.message),
       );
     }
-
+ 
     const { email, password } = parsed.data;
-
+ 
     const user = await prisma.user.findUnique({ where: { email } });
-
+ 
     if (!user) {
       return sendResp(res, HTTP_STATUS.BAD_REQUEST, "User not found", null);
     }
-
+ 
     const isMatch = await bcrypt.compare(password, user.password);
-
+ 
     if (!isMatch) {
       return sendResp(
         res,
@@ -180,31 +182,36 @@ export const login = async (req: Request, res: Response) => {
         null,
       );
     }
-
-    if (isMatch) {
-      const accessToken = generateAccessToken(user.id);
-
-      const refreshToken = generateRefreshToken(user.id);
-
-      res.cookie("refreshToken", refreshToken, {
-        httpOnly: true, // JS cannot access this
-        secure: true, // HTTPS only
-        sameSite: "strict",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
-
-      await prisma.refreshToken.create({
-        data: {
-          token: refreshToken,
-          userId: user.id,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
-      });
-
-      res.status(200).json({
-        accessToken,
-      });
-    }
+ 
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+ 
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+ 
+    // Clean up this user's expired/stale tokens before adding a new one.
+    // Keeps the table from growing unbounded while still allowing
+    // multiple simultaneous sessions (phone + laptop, etc).
+    await prisma.refreshToken.deleteMany({
+      where: {
+        userId: user.id,
+        expiresAt: { lt: new Date() },
+      },
+    });
+ 
+    await prisma.refreshToken.create({
+      data: {
+        token: refreshToken,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+ 
+    return res.status(200).json({ accessToken });
   } catch (error) {
     return sendResp(
       res,
@@ -216,44 +223,82 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
+
 export const logout = async (req: Request, res: Response) => {
   try {
     const token = req.cookies.refreshToken;
-
-    await prisma.refreshToken.delete({ where: { token } });
-
-    res.clearCookie("refreshToken");
+ 
+    if (token) {
+      // deleteMany never throws if no row matches — unlike delete()
+      await prisma.refreshToken.deleteMany({ where: { token } });
+    }
+ 
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+    });
+ 
     return sendResp(res, HTTP_STATUS.OK, "Logged out");
   } catch (error) {
     return sendResp(
       res,
       HTTP_STATUS.SERVER_ERROR,
-      "Something went wrong login user",
+      "Something went wrong logging out user",
       null,
       error instanceof Error ? error.message : "Unknown error",
     );
   }
 };
 
+// export const refresh = async (req: Request, res: Response) => {
+//   const token = req.cookies.refreshToken;
+
+//   if (!token) {
+//     return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "No refresh token");
+//   }
+
+//   const stored = await prisma.refreshToken.findUnique({ where: { token } });
+//   if (!stored) {
+//     return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "Invalid refresh token");
+//   }
+
+//   const payload = verifyRefreshToken(token);
+//   if (!payload) {
+//     return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "Expired or tampered");
+//   }
+
+//   const newAccessToken = generateAccessToken(payload.userId);
+
+//   return sendResp(res, HTTP_STATUS.OK, "", { accessToken: newAccessToken });
+// };
+
+
 export const refresh = async (req: Request, res: Response) => {
   const token = req.cookies.refreshToken;
-
+ 
   if (!token) {
+    console.log("[REFRESH FAIL] No cookie received. All cookies:", req.cookies);
     return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "No refresh token");
   }
-
+ 
   const stored = await prisma.refreshToken.findUnique({ where: { token } });
   if (!stored) {
+    console.log("[REFRESH FAIL] Cookie present but not found in DB. Token (first 12 chars):", token.slice(0, 12));
     return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "Invalid refresh token");
   }
-
+ 
+  console.log("[REFRESH] DB row found. expiresAt:", stored.expiresAt, "now:", new Date());
+ 
   const payload = verifyRefreshToken(token);
   if (!payload) {
+    console.log("[REFRESH FAIL] JWT verify failed — token expired or tampered (independent of DB row)");
     return sendResp(res, HTTP_STATUS.UNAUTHORIZED, "Expired or tampered");
   }
-
+ 
   const newAccessToken = generateAccessToken(payload.userId);
-
+  console.log("[REFRESH OK] Issued new access token for user:", payload.userId);
+ 
   return sendResp(res, HTTP_STATUS.OK, "", { accessToken: newAccessToken });
 };
 

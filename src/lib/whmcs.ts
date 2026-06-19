@@ -1,5 +1,6 @@
 import axios from 'axios';
 import qs from 'qs';
+import { countryCodeMap } from '../utils/countryCodes';
 
 const WHMCS_URL = `${process.env.WHMCS_URL}/includes/api.php`;
 
@@ -20,10 +21,7 @@ async function whmcsRequest(action: string, params: Record<string, any> = {}) {
   return data;
 }
 
-const countryCodeMap: Record<string, string> = {
-  Nigeria: 'NG',
-  // add more as your user base grows
-};
+
 
 export async function createWhmcsClient(user: {
   firstName: string;
