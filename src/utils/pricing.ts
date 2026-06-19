@@ -7,7 +7,7 @@
 
 // TODO: replace with your actual decision — flat % vs flat NGN fee.
 // Using a flat percentage placeholder for now.
-const MARKUP_PERCENTAGE = 0.20; // 20% on top of wholesale — placeholder, confirm real value
+const MARKUP_PERCENTAGE = 0.50; // 20% on top of wholesale — placeholder, confirm real value
 
 // TODO: replace with a live FX rate lookup (e.g. a daily-cached call to
 // an FX API) instead of a hardcoded constant — exchange rates move and
