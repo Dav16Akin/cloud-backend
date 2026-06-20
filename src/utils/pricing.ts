@@ -19,8 +19,8 @@ type SupportedCurrency = "USD" | "EUR" | "NGN";
 
 /**
  * Converts a wholesale price in USD/EUR/NGN into a final NGN retail price,
- * with markup applied. Always rounds up to the nearest whole Naira so
- * Nupat never under-charges due to rounding.
+ * with markup applied. Always rounds up to the nearest 1000 Naira so
+ * Nupat never under-charges and keeps domain/SSL pricing clean.
  */
 export function calculateRetailPriceNGN(
   wholesaleAmount: number,
@@ -43,5 +43,5 @@ export function calculateRetailPriceNGN(
   }
 
   const withMarkup = amountInNGN * (1 + MARKUP_PERCENTAGE);
-  return Math.ceil(withMarkup);
+  return Math.ceil(withMarkup / 1000) * 1000;
 }

@@ -1,9 +1,9 @@
 import { Router } from "express";
 import {
-  initializePayment,
   paystackWebhook,
   verifyPayment,
   getOrders,
+  initializeCartPayment,
 } from "./order.controller";
 import { protect } from "../../middleware/auth.middleware";
 
@@ -13,7 +13,7 @@ const router = Router();
 // and needs raw body for signature verification
 router.post("/orders/webhook", paystackWebhook);
 
-router.post("/orders/initialize", protect, initializePayment);
+router.post("/orders/initialize", protect, initializeCartPayment);
 router.get("/orders/verify/:reference", protect, verifyPayment);
 router.get("/orders", protect, getOrders);
 

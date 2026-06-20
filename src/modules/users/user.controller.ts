@@ -45,6 +45,8 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         ...(parsed.data.country && { country: parsed.data.country }),
         ...(parsed.data.city && { city: parsed.data.city }),
         ...(parsed.data.postcode && { postcode: parsed.data.postcode }),
+        ...(parsed.data.state && { state: parsed.data.state }),
+        ...(parsed.data.houseNumber && { houseNumber: parsed.data.houseNumber }),
       },
     });
 

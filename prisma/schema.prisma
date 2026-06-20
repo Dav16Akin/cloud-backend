@@ -9,35 +9,35 @@ datasource db {
 
 //USER
 model User {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   firstName   String
   lastName    String
-  email       String   @unique
+  email       String @unique
   password    String
   phoneNumber String
 
-  companyName   String
-  address       String
-  houseNumber String 
-  country       String
-  city          String
-  state         String
-  postcode      String
+  companyName String
+  address     String
+  houseNumber String
+  country     String
+  city        String
+  state       String
+  postcode    String
 
-  whmcsClientId Int? 
+  whmcsClientId Int?
 
-  openproviderHandle  String?
-  domains             Domain[]
+  openproviderHandle String?
+  domains            Domain[]
 
-  role        Role     @default(USER)
-  verified    Boolean  @default(false)
+  role     Role    @default(USER)
+  verified Boolean @default(false)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  otps        OTP[]
+  otps            OTP[]
   hostingAccounts HostingAccount[]
-  orders Order[]
+  orders          Order[]
 }
 
 enum Role {
@@ -47,68 +47,67 @@ enum Role {
 }
 
 model RefreshToken {
-  id         String   @id @default(cuid())
-  token      String   @unique
-  userId     String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([userId])
 }
 
 model OTP {
-  id String @id @default(uuid())
-  userId String
-  code String
+  id        String   @id @default(uuid())
+  userId    String
+  code      String
   expiresAt DateTime
   createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  attempts  Int @default(0)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts  Int      @default(0)
 }
 
 //PLAN
 model Plan {
-  id          String   @id @default(cuid())
-  name        String   // "Starter" | "Business" | "Agency"
-  price       Float    // in Naira
-  billingCycle String  // "yearly"
-  storage     String   // "2GB SSD"
-  bandwidth   String   // "10GB"
-  websites    Int      // 1, 5, unlimited = 999
-  emails      Int      // 2, 10, unlimited = 999
-  features    String[] // array of feature strings
-  isPopular   Boolean  @default(false) // highlights Business plan
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String           @id @default(cuid())
+  name            String // "Starter" | "Business" | "Agency"
+  price           Float // in Naira
+  billingCycle    String // "yearly"
+  storage         String // "2GB SSD"
+  bandwidth       String // "10GB"
+  websites        Int // 1, 5, unlimited = 999
+  emails          Int // 2, 10, unlimited = 999
+  features        String[] // array of feature strings
+  isPopular       Boolean          @default(false) // highlights Business plan
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   hostingAccounts HostingAccount[]
-  orders Order[]
+  orders          Order[]
+  orderItems      OrderItem[]
 }
-
 
 //HOSTING
 model HostingAccount {
-  id            String   @id @default(cuid())
-  userId        String
-  planId        String
-  
-  // cPanel account details
-  cpanelUsername String  @unique
-  domain         String  @unique
-  serverIp       String
-  
-  status        HostingStatus @default(ACTIVE)
-  expiresAt     DateTime
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan          Plan     @relation(fields: [planId], references: [id])
-  orderId   String? @unique
-  order     Order?  @relation(fields: [orderId], references: [id])
-}
+  id     String @id @default(cuid())
+  userId String
+  planId String
 
+  cpanelUsername String @unique
+  domain         String @unique
+  serverIp       String
+
+  status    HostingStatus @default(ACTIVE)
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  orderItemId String?    @unique
+  orderItem   OrderItem? @relation(fields: [orderItemId], references: [id])
+}
 
 enum HostingStatus {
   ACTIVE
@@ -117,20 +116,43 @@ enum HostingStatus {
   PENDING
 }
 
-
 model Order {
-  id             String         @id @default(cuid())
-  userId         String
-  planId         String
-  amount         Float
-  status         OrderStatus    @default(PENDING)
-  paystackRef    String         @unique
-  paystackData   Json?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan           Plan           @relation(fields: [planId], references: [id])
+  id           String      @id @default(cuid())
+  userId       String
+  planId       String?
+  amount       Float
+  status       OrderStatus @default(PENDING)
+  paystackRef  String      @unique
+  paystackData Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items        OrderItem[]
+  plan         Plan?       @relation(fields: [planId], references: [id])
+}
+
+model OrderItem {
+  id      String        @id @default(cuid())
+  orderId String
+  type    OrderItemType
+  price   Float
+
+  planId     String?
+  domainName String?
+
+  hostingAccountId String? @unique
+  domainId         String? @unique
+
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  plan           Plan?           @relation(fields: [planId], references: [id])
   hostingAccount HostingAccount?
+  domain         Domain?
+}
+
+enum OrderItemType {
+  HOSTING
+  DOMAIN
+  SSL
 }
 
 enum OrderStatus {
@@ -140,31 +162,30 @@ enum OrderStatus {
   REFUNDED
 }
 
-
 model Domain {
-  id              String       @id @default(cuid())
-  userId          String
-  name            String       @unique
-  extension       String
+  id        String @id @default(cuid())
+  userId    String
+  name      String @unique
+  extension String
 
-  openproviderId  Int?
-  authCode        String?
+  openproviderId Int?
+  authCode       String?
 
-  status          DomainStatus @default(PENDING)
-  autoRenew       Boolean      @default(true)
+  status    DomainStatus @default(PENDING)
+  autoRenew Boolean      @default(true)
 
-  nameservers     String[]
+  nameservers String[]
 
-  registeredAt    DateTime?
-  expiresAt       DateTime?
+  registeredAt DateTime?
+  expiresAt    DateTime?
 
-  pricePaid       Float
-  paystackRef     String?      @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderItemId String?    @unique
+  orderItem   OrderItem? @relation(fields: [orderItemId], references: [id])
 }
 
 enum DomainStatus {

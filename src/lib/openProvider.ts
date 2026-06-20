@@ -89,6 +89,7 @@ export const createOpenProviderCustomerHandle = async (user: {
   return handle as string;
 };
 
+
 export const registerDomainWithOpenProvider = async ({
   domainName,
   extension,
@@ -98,9 +99,34 @@ export const registerDomainWithOpenProvider = async ({
   domainName: string;
   extension: string;
   ownerHandle: string;
-  nameservers: string[] | undefined;
+  nameservers?: string[];
 }) => {
-  const response = await openproviderRequest("POST", "/")
+  const response = await openproviderRequest("POST", "/domains", {
+    owner_handle: ownerHandle,
+    admin_handle: ownerHandle,
+    tech_handle: ownerHandle,
+    billing_handle: ownerHandle,
+    domain: {
+      name: domainName,
+      extension: extension,
+    },
+    period: 1,
+    name_servers: (nameservers ?? []).map((ns) => ({ name: ns })),
+    autorenew: "off",
+  });
+ 
+  const data = response.data?.data;
+  if (!data?.id) {
+    throw new Error("OpenProvider did not return a domain id — registration may have failed");
+  }
+ 
+  return {
+    openproviderId: data.id as number,
+    authCode: data.auth_code as string,
+    status: data.status as string,
+    activationDate: data.activation_date as string,
+    expirationDate: data.expiration_date as string,
+  };
 };
 
 export default openproviderClient;

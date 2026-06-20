@@ -36,16 +36,17 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
       return sendResp(res, HTTP_STATUS.NOT_FOUND, "User not found");
     }
 
-    const paidOrder = await prisma.order.findFirst({
+    // Find a paid order item for this plan that hasn't been provisioned yet
+    const paidOrderItem = await prisma.orderItem.findFirst({
       where: {
-        userId: req.userId!,
+        order: { userId: req.userId!, status: "PAID" },
         planId: parsed.data.planId,
-        status: "PAID",
+        type: "HOSTING",
         hostingAccount: null, // not yet provisioned
       },
     });
 
-    if (!paidOrder) {
+    if (!paidOrderItem) {
       return sendResp(
         res,
         HTTP_STATUS.FORBIDDEN,
@@ -98,12 +99,8 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
         domain,
         serverIp: process.env.WHM_HOST!,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+        orderItemId: paidOrderItem.id,
       },
-    });
-
-    await prisma.order.update({
-      where: { id: paidOrder.id },
-      data: { hostingAccount: { connect: { id: hostingAccount.id } } },
     });
 
     return sendResp(res, HTTP_STATUS.CREATED, "Hosting account created", {

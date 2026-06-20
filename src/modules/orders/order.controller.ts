@@ -5,64 +5,156 @@ import { sendResp } from "../../utils/resp";
 import { HTTP_STATUS } from "../../utils/statusCodes";
 import { prisma } from "../../lib/prisma";
 import paystackClient from "../../lib/paystack";
-import { initializePaymentSchema } from "./order.validation";
-import { createWhmcsInvoice, markWhmcsInvoicePaid } from '../../lib/whmcs';
+import { createWhmcsInvoice, markWhmcsInvoicePaid } from "../../lib/whmcs";
+import { calculateRetailPriceNGN } from "../../utils/pricing";
+import {
+  createOpenProviderCustomerHandle,
+  openproviderRequest,
+  registerDomainWithOpenProvider,
+} from "../../lib/openProvider";
+import { generateCpanelUsername } from "../../utils/utils";
+import whmClient from "../../lib/whm";
+import { provisionOrderItems } from "./provisionOrderItems";
 
-// POST /orders/initialize
-export const initializePayment = async (req: AuthRequest, res: Response) => {
+// What the frontend sends us — a cart, not a single plan
+type CartItem =
+  | { type: "HOSTING"; planId: string }
+  | { type: "DOMAIN"; domainName: string; extension: string }
+  | { type: "SSL"; domainName: string };
+
+export const initializeCartPayment = async (
+  req: AuthRequest,
+  res: Response,
+) => {
   try {
-    const parsed = initializePaymentSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return sendResp(
-        res,
-        HTTP_STATUS.BAD_REQUEST,
-        "Invalid input",
-        null,
-        parsed.error.issues.map((e) => e.message),
-      );
+    const { items } = req.body as { items: CartItem[] };
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Cart is empty");
     }
 
-    const { planId } = parsed.data;
-
-    // 1. Get plan
-    const plan = await prisma.plan.findUnique({ where: { id: planId } });
-    if (!plan) return sendResp(res, HTTP_STATUS.NOT_FOUND, "Plan not found");
-
-    // 2. Get user
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return sendResp(res, HTTP_STATUS.NOT_FOUND, "User not found");
 
-    // 3. Check if user already has an active order for this plan
-    const existingOrder = await prisma.order.findFirst({
-      where: {
-        userId: req.userId!,
-        planId,
-        status: "PAID",
-      },
-    });
+    const countryCodeMap: Record<string, string> = {
+      Nigeria: "NG",
+    };
 
-    if (existingOrder) {
-      return sendResp(
-        res,
-        HTTP_STATUS.CONFLICT,
-        "You already have an active order for this plan",
-      );
+    const needsOpenProviderHandle = items.some(
+      (item) => item.type === "DOMAIN" || item.type === "SSL",
+    );
+
+    if (needsOpenProviderHandle && !user.openproviderHandle) {
+      if (!user.houseNumber) {
+        return sendResp(
+          res,
+          HTTP_STATUS.BAD_REQUEST,
+          "Please add your house/street number to your profile before purchasing a domain",
+        );
+      }
+
+      const handle = await createOpenProviderCustomerHandle({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        streetAddress: user.address,
+        houseNumber: user.houseNumber,
+        city: user.city,
+        state: user.state,
+        countryCode: countryCodeMap[user.country] ?? user.country,
+        postcode: user.postcode,
+        companyName: user.companyName,
+      });
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { openproviderHandle: handle },
+      });
+
+      // Important: keep using the freshly-saved value for the rest of this
+      // request — `user.openproviderHandle` itself is stale (the object was
+      // fetched before this update), so later code that reads `user.openproviderHandle`
+      // would otherwise still see null even though the DB now has it.
+      user.openproviderHandle = handle;
     }
 
-    // 4. Initialize Paystack payment
-    // Paystack amount is in kobo (multiply by 100)
+    type DraftItem = {
+      type: "HOSTING" | "DOMAIN" | "SSL";
+      price: number;
+      planId?: string;
+      domainName?: string;
+    };
+
+    const itemsToCreate: DraftItem[] = [];
+
+    for (const item of items) {
+      if (item.type === "HOSTING") {
+        const plan = await prisma.plan.findUnique({
+          where: { id: item.planId },
+        });
+        if (!plan) {
+          return sendResp(
+            res,
+            HTTP_STATUS.NOT_FOUND,
+            `Plan not found: ${item.planId}`,
+          );
+        }
+        itemsToCreate.push({
+          type: "HOSTING",
+          price: plan.price,
+          planId: plan.id,
+        });
+      }
+
+      if (item.type === "DOMAIN") {
+        const check = await openproviderRequest("POST", "/domains/check", {
+          domains: [{ name: item.domainName, extension: item.extension }],
+          with_price: true,
+        });
+        const result = check.data?.data?.results?.[0];
+        if (!result || result.status !== "free") {
+          return sendResp(
+            res,
+            HTTP_STATUS.CONFLICT,
+            `Domain no longer available: ${item.domainName}.${item.extension}`,
+          );
+        }
+        const wholesalePrice = result.price?.product?.price ?? 0;
+        const wholesaleCurrency = result.price?.product?.currency ?? "USD";
+        const retailPrice = calculateRetailPriceNGN(
+          wholesalePrice,
+          wholesaleCurrency,
+        );
+
+        itemsToCreate.push({
+          type: "DOMAIN",
+          price: retailPrice,
+          domainName: `${item.domainName}.${item.extension}`,
+        });
+      }
+
+      if (item.type === "SSL") {
+        itemsToCreate.push({
+          type: "SSL",
+          price: calculateRetailPriceNGN(15, "USD"),
+          domainName: item.domainName,
+        });
+      }
+    }
+
+    // Use Math.round to avoid floating-point kobo amounts (e.g. 1400.005 * 100 ≠ integer)
+    const totalAmount = itemsToCreate.reduce((sum, i) => sum + i.price, 0);
+    const totalKobo = Math.round(totalAmount * 100);
+
     const paystackResponse = await paystackClient.post(
       "/transaction/initialize",
       {
         email: user.email,
-        amount: plan.price * 100,
+        amount: totalKobo,
         currency: "NGN",
         callback_url: `${process.env.FRONTEND_URL}/dashboard/orders/verify`,
-        metadata: {
-          planId: plan.id,
-          planName: plan.name,
-          userId: user.id,
-        },
+        metadata: { userId: user.id },
       },
     );
 
@@ -76,21 +168,27 @@ export const initializePayment = async (req: AuthRequest, res: Response) => {
 
     const { reference, authorization_url } = paystackResponse.data.data;
 
-    // 5. Save pending order to DB
     await prisma.order.create({
       data: {
-        userId: req.userId!,
-        planId: plan.id,
-        amount: plan.price,
+        user: { connect: { id: user.id } },
+        amount: totalAmount,
         status: "PENDING",
         paystackRef: reference,
+        items: {
+          create: itemsToCreate.map((item) => ({
+            type: item.type,
+            price: item.price,
+            domainName: item.domainName,
+            ...(item.planId ? { plan: { connect: { id: item.planId } } } : {}),
+          })),
+        },
       },
     });
 
-    // 6. Return payment URL to frontend
     return sendResp(res, HTTP_STATUS.OK, "Payment initialized", {
       paymentUrl: authorization_url,
       reference,
+      total: totalAmount,
     });
   } catch (error) {
     return sendResp(
@@ -106,60 +204,65 @@ export const initializePayment = async (req: AuthRequest, res: Response) => {
 // POST /orders/webhook (no auth - called by Paystack)
 export const paystackWebhook = async (req: Request, res: Response) => {
   try {
-    // 1. Verify webhook signature
     const hash = crypto
       .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY!)
       .update(JSON.stringify(req.body))
       .digest("hex");
- 
+
     if (hash !== req.headers["x-paystack-signature"]) {
       return res.status(401).send("Invalid signature");
     }
- 
+
     const { event, data } = req.body;
- 
-    // 2. Only handle successful charges
     if (event !== "charge.success") {
-      return res.sendStatus(200); // acknowledge other events
+      return res.sendStatus(200);
     }
- 
+
     const { reference } = data;
- 
-    // 3. Find the order
+
+    // Pull the order WITH its items and the user — we need all of this
+    // to know what to provision and who it belongs to
     const order = await prisma.order.findUnique({
       where: { paystackRef: reference },
-      include: { plan: true },
+      include: { items: { include: { plan: true } }, user: true },
     });
- 
-    if (!order) {
-      return res.sendStatus(200); // order not found, ignore
-    }
- 
-    if (order.status === "PAID") {
-      return res.sendStatus(200); // already processed, ignore
-    }
- 
-    // 4. Update order to PAID
+
+    if (!order) return res.sendStatus(200);
+    if (order.status === "PAID") return res.sendStatus(200); // already processed
+
+    // Mark the order paid FIRST — if anything below fails, we still know
+    // the customer paid, and can retry provisioning manually rather than
+    // accidentally charging them twice
     await prisma.order.update({
       where: { paystackRef: reference },
-      data: {
-        status: "PAID",
-        paystackData: data,
-      },
+      data: { status: "PAID", paystackData: data },
     });
- 
-    // 5. Sync to WHMCS — record-keeping only, never blocks the webhook response
-    const user = await prisma.user.findUnique({ where: { id: order.userId } });
- 
-    if (user?.whmcsClientId) {
+
+    // Resolve the domain name for a HOSTING item by looking for a DOMAIN
+    // item in the same cart — so we can set the correct primary domain on
+    // the cPanel account instead of the fallback subdomain.
+
+    // Walk through every item in the cart and provision it according to its type
+
+    await provisionOrderItems(order.id);
+
+    // Sync to WHMCS for record-keeping
+    if (order.user.whmcsClientId) {
       try {
+        const description = order.items
+          .map((i) =>
+            i.type === "HOSTING"
+              ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}`
+              : `${i.type}: ${i.domainName}`,
+          )
+          .join(", ");
+
         const invoice = await createWhmcsInvoice(
-          user.whmcsClientId,
+          order.user.whmcsClientId,
           order.amount,
-          `Hosting Plan - ${order.plan.name}`,
+          description,
           order.paystackRef,
         );
- 
         await markWhmcsInvoicePaid(
           invoice.invoiceid,
           order.amount,
@@ -169,47 +272,156 @@ export const paystackWebhook = async (req: Request, res: Response) => {
         console.error("WHMCS invoice sync failed:", whmcsError);
       }
     }
- 
-    // 6. Acknowledge webhook
-    // Paystack expects a 200 response within 5 seconds
+
     return res.sendStatus(200);
   } catch (error) {
     console.error("Webhook error:", error);
     return res.sendStatus(500);
   }
 };
- 
-// GET /orders/verify/:reference (backup manual verify)
+
+// GET /orders/verify/:reference (backup manual verify — called by the frontend
+// after redirect from Paystack callback to confirm payment status)
+// export const verifyPayment = async (req: AuthRequest, res: Response) => {
+//   try {
+//     const { reference } = req.params as { reference: string };
+
+//     // 1. Check our DB first — include items so we can return meaningful data
+//     const order = await prisma.order.findUnique({
+//       where: { paystackRef: reference },
+//       include: {
+//         plan: true,
+//         items: { include: { plan: true } },
+//         user: true,
+//       },
+//     });
+
+//     if (!order) {
+//       return sendResp(res, HTTP_STATUS.NOT_FOUND, "Order not found");
+//     }
+
+//     // make sure order belongs to user
+//     if (order.userId !== req.userId) {
+//       return sendResp(res, HTTP_STATUS.FORBIDDEN, "Unauthorized");
+//     }
+
+//     // 2. If already paid in our DB, return immediately without re-hitting Paystack
+//     if (order.status === "PAID") {
+//       return sendResp(res, HTTP_STATUS.OK, "Payment verified", {
+//         status: "PAID",
+//         items: order.items,
+//         amount: order.amount,
+//         reference: order.paystackRef,
+//       });
+//     }
+
+//     // 3. Double-check with Paystack for orders still marked PENDING
+//     const paystackResponse = await paystackClient.get(
+//       `/transaction/verify/${reference}`,
+//     );
+
+//     if (!paystackResponse.data.status) {
+//       return sendResp(
+//         res,
+//         HTTP_STATUS.SERVER_ERROR,
+//         "Failed to verify payment",
+//       );
+//     }
+
+//     const paystackData = paystackResponse.data.data;
+
+//     if (paystackData.status !== "success") {
+//       return sendResp(res, HTTP_STATUS.BAD_REQUEST, "Payment not successful", {
+//         status: paystackData.status,
+//       });
+//     }
+
+//     // 4. Update order — the webhook should have already done this, but this
+//     //    acts as a reliable fallback if the webhook was delayed or missed.
+//     //    Re-check status after update to avoid double WHMCS invoices.
+//     const updated = await prisma.order.update({
+//       where: { paystackRef: reference },
+//       data: {
+//         status: "PAID",
+//         paystackData: paystackData,
+//       },
+//     });
+
+//     // 5. WHMCS sync — only if this verify call is the one actually marking it paid
+//     //    (i.e. it wasn't already PAID in DB — which we checked above via early return)
+//     if (order.user.whmcsClientId) {
+//       try {
+//         const description = order.items
+//           .map((i) =>
+//             i.type === "HOSTING"
+//               ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}`
+//               : `${i.type}: ${i.domainName}`,
+//           )
+//           .join(", ") || "Order";
+
+//         const invoice = await createWhmcsInvoice(
+//           order.user.whmcsClientId,
+//           order.amount,
+//           description,
+//           order.paystackRef,
+//         );
+//         await markWhmcsInvoicePaid(
+//           invoice.invoiceid,
+//           order.amount,
+//           order.paystackRef,
+//         );
+//       } catch (whmcsError) {
+//         console.error("WHMCS invoice sync failed:", whmcsError);
+//       }
+//     }
+
+//     return sendResp(res, HTTP_STATUS.OK, "Payment verified", {
+//       status: "PAID",
+//       items: order.items,
+//       amount: order.amount,
+//       reference: order.paystackRef,
+//     });
+//   } catch (error) {
+//     return sendResp(
+//       res,
+//       HTTP_STATUS.SERVER_ERROR,
+//       "Something went wrong verifying payment",
+//       null,
+//       error instanceof Error ? error.message : "Unknown error",
+//     );
+//   }
+// };
+
 export const verifyPayment = async (req: AuthRequest, res: Response) => {
   try {
     const { reference } = req.params as { reference: string };
 
-    // 1. Check our DB first
     const order = await prisma.order.findUnique({
       where: { paystackRef: reference },
-      include: { plan: true },
+      include: {
+        plan: true,
+        items: { include: { plan: true } },
+        user: true,
+      },
     });
 
     if (!order) {
       return sendResp(res, HTTP_STATUS.NOT_FOUND, "Order not found");
     }
 
-    // make sure order belongs to user
     if (order.userId !== req.userId) {
       return sendResp(res, HTTP_STATUS.FORBIDDEN, "Unauthorized");
     }
 
-    // 2. If already paid in our DB return it
     if (order.status === "PAID") {
       return sendResp(res, HTTP_STATUS.OK, "Payment verified", {
         status: "PAID",
-        plan: order.plan,
+        items: order.items,
         amount: order.amount,
         reference: order.paystackRef,
       });
     }
 
-    // 3. Double check with Paystack
     const paystackResponse = await paystackClient.get(
       `/transaction/verify/${reference}`,
     );
@@ -230,7 +442,6 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 4. Update order if Paystack confirms payment
     await prisma.order.update({
       where: { paystackRef: reference },
       data: {
@@ -239,18 +450,28 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    const user = await prisma.user.findUnique({ where: { id: order.userId } });
+    // This was missing — without it, nothing ever actually got provisioned
+    // when the webhook hadn't already done it first (e.g. local dev,
+    // or a delayed webhook in production).
+    await provisionOrderItems(order.id);
 
-    if (user?.whmcsClientId) {
+    if (order.user.whmcsClientId) {
       try {
-        // Create and immediately mark paid in WHMCS
+        const description =
+          order.items
+            .map((i) =>
+              i.type === "HOSTING"
+                ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}`
+                : `${i.type}: ${i.domainName}`,
+            )
+            .join(", ") || "Order";
+
         const invoice = await createWhmcsInvoice(
-          user.whmcsClientId,
+          order.user.whmcsClientId,
           order.amount,
-          `Hosting Plan - ${order.plan.name}`,
+          description,
           order.paystackRef,
         );
-
         await markWhmcsInvoicePaid(
           invoice.invoiceid,
           order.amount,
@@ -263,7 +484,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 
     return sendResp(res, HTTP_STATUS.OK, "Payment verified", {
       status: "PAID",
-      plan: order.plan,
+      items: order.items,
       amount: order.amount,
       reference: order.paystackRef,
     });
@@ -278,12 +499,14 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// GET /orders → get user's orders
+// GET /orders → get user's orders with all cart items
 export const getOrders = async (req: AuthRequest, res: Response) => {
   try {
     const orders = await prisma.order.findMany({
       where: { userId: req.userId },
-      include: { plan: true },
+      include: {
+        items: { include: { plan: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
 

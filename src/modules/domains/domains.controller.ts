@@ -17,11 +17,8 @@ const extensions = [
   "org",
   "io",
   "co",
-  "ng",
-  "com.ng",
-  "africa",
-  "app",
-  "dev",
+  "info",
+  "me",
 ];
 
 export const searchAvailableDomains = async (req: Request, res: Response) => {
@@ -116,6 +113,11 @@ export const registerDomain = async (req: AuthRequest, res: Response) => {
       return sendResp(res, HTTP_STATUS.NOT_FOUND, "User not found");
     }
 
+
+    const response = await openproviderRequest("POST", "/domains/check", {
+      domains: [{"extension": extension, "name": name} ],
+      with_price: true,
+    });
     // 3. Re-check live availability + price right before charging —
     // prices/availability can change between search and purchase
     // (TODO: call openproviderRequest("POST", "/domains/check", ...) here
@@ -151,6 +153,15 @@ export const registerDomain = async (req: AuthRequest, res: Response) => {
         data: { openproviderHandle: ownerHandle },
       });
     }
+
+
+    const paidOrder = await prisma.domain.findFirst({
+      where: {
+        userId: req.userId,
+        status: "ACTIVE"
+      }
+    })
+
 
     // 5. TODO: charge the user via Paystack BEFORE registering the domain —
     // this controller assumes payment already happened, mirroring how
@@ -201,6 +212,51 @@ export const registerDomain = async (req: AuthRequest, res: Response) => {
       res,
       HTTP_STATUS.SERVER_ERROR,
       "Something went wrong registering the domain",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+// GET /domains — list everything the logged-in user owns
+export const getDomains = async (req: AuthRequest, res: Response) => {
+  try {
+    const domains = await prisma.domain.findMany({
+      where: { userId: req.userId },
+      orderBy: { createdAt: "desc" },
+    });
+ 
+    return sendResp(res, HTTP_STATUS.OK, "", domains);
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong getting domains",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+
+export const getDomainById = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+ 
+    const domain = await prisma.domain.findFirst({
+      where: { id, userId: req.userId },
+    });
+ 
+    if (!domain) {
+      return sendResp(res, HTTP_STATUS.NOT_FOUND, "Domain not found");
+    }
+ 
+    return sendResp(res, HTTP_STATUS.OK, "", domain);
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong getting domain",
       null,
       error instanceof Error ? error.message : "Unknown error",
     );
