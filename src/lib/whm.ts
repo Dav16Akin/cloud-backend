@@ -13,4 +13,26 @@ const whmClient = axios.create({
   paramsSerializer: (params) => qs.stringify(params),
 });
 
+export const createCpanelSession = async (cpanelUsername: string) => {
+  const response = await whmClient.get("/json-api/create_user_session", {
+    params: {
+      "api.version": 1,
+      user: cpanelUsername,
+      service: "cpaneld",
+    },
+  });
+
+  console.log(response);
+  
+
+  const data = response.data.data;
+  console.log(data);
+  
+  if (!data.url) {
+    throw new Error("WHM did not return a session URL");
+  }
+
+  return data.url as string;
+};
+
 export default whmClient;

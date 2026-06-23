@@ -4,7 +4,7 @@ import { HTTP_STATUS } from "../../../utils/statusCodes";
 import { sendResp } from "../../../utils/resp";
 import { prisma } from "../../../lib/prisma";
 import { generateCpanelUsername, parseDiskValue } from "../../../utils/utils";
-import whmClient from "../../../lib/whm";
+import whmClient, { createCpanelSession } from "../../../lib/whm";
 import crypto from "crypto";
 import { provisionHostingSchema } from "../validations/account.validations";
 
@@ -66,7 +66,7 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
       user.firstName,
       user.lastName,
     );
-    
+
     const cpanelPassword =
       crypto.randomBytes(12).toString("base64").slice(0, 12) + "A1!";
 
@@ -392,6 +392,38 @@ export const getStats = async (req: AuthRequest, res: Response) => {
       res,
       HTTP_STATUS.SERVER_ERROR,
       "Something went wrong getting hosting stats",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const getCpanelLoginLink = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params as { id: string };
+
+    const hosting = await prisma.hostingAccount.findFirst({where: {id, userId: req.userId}});
+    
+    if (!hosting) {
+      return sendResp(res, HTTP_STATUS.NOT_FOUND, "Hosting not found");
+    }
+
+    if (hosting.status !== "ACTIVE") {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Cannot log in to a suspended or terminated account",
+      );
+    }
+
+    const loginUrl = await createCpanelSession(hosting.cpanelUsername);
+
+    return sendResp(res, HTTP_STATUS.OK, "", { loginUrl });
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Something went wrong generating cPanel login link",
       null,
       error instanceof Error ? error.message : "Unknown error",
     );

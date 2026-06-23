@@ -2,6 +2,7 @@ import { Router } from "express";
 import { protect } from "../../middleware/auth.middleware";
 import {
   deleteHostingById,
+  getCpanelLoginLink,
   getHostingById,
   getHostings,
   getStats,
@@ -89,5 +90,7 @@ router.get("/hosting/:id/dns", protect, getDNSRecords);
 router.post("/hosting/:id/dns", protect, createDNSRecord);
 router.patch("/hosting/:id/dns/:recordId", protect, updateDNSRecord);
 router.delete("/hosting/:id/dns/:recordId", protect, deleteDNSRecord);
+
+router.get("/hosting/:id/cpanel-login", protect, getCpanelLoginLink)
 
 export default router;
