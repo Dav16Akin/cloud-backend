@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { Request, response, Response } from "express";
+import { Request, Response } from "express";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { sendResp } from "../../utils/resp";
 import { HTTP_STATUS } from "../../utils/statusCodes";
@@ -10,10 +10,7 @@ import { calculateRetailPriceNGN } from "../../utils/pricing";
 import {
   createOpenProviderCustomerHandle,
   openproviderRequest,
-  registerDomainWithOpenProvider,
 } from "../../lib/openProvider";
-import { generateCpanelUsername } from "../../utils/utils";
-import whmClient from "../../lib/whm";
 import { provisionOrderItems } from "./provisionOrderItems";
 
 // What the frontend sends us — a cart, not a single plan
@@ -39,12 +36,15 @@ export const initializeCartPayment = async (
     const countryCodeMap: Record<string, string> = {
       Nigeria: "NG",
     };
-
+    
     const needsOpenProviderHandle = items.some(
       (item) => item.type === "DOMAIN" || item.type === "SSL",
     );
 
+  
     if (needsOpenProviderHandle && !user.openproviderHandle) {
+      console.log(user.houseNumber);
+      
       if (!user.houseNumber) {
         return sendResp(
           res,
@@ -66,15 +66,12 @@ export const initializeCartPayment = async (
         postcode: user.postcode,
         companyName: user.companyName,
       });
-
-      console.log(handle);
       
 
       await prisma.user.update({
         where: { id: user.id },
         data: { openproviderHandle: handle },
       });
-
       // Important: keep using the freshly-saved value for the rest of this
       // request — `user.openproviderHandle` itself is stale (the object was
       // fetched before this update), so later code that reads `user.openproviderHandle`
@@ -160,10 +157,7 @@ export const initializeCartPayment = async (
         metadata: { userId: user.id },
       },
     );
-
-    console.log("paystackResponse: ", paystackResponse);
     
-
     if (!paystackResponse.data.status) {
       return sendResp(
         res,

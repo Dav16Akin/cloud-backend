@@ -11,7 +11,7 @@ const router = Router();
 
 router.get("/me", protect, getUser);
 
-router.patch("/me", protect, updateUser);
+router.patch("/profile", protect, updateUser);
 
 router.patch("/change-password", protect, changePassword);
 
