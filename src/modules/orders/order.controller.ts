@@ -67,6 +67,9 @@ export const initializeCartPayment = async (
         companyName: user.companyName,
       });
 
+      console.log(handle);
+      
+
       await prisma.user.update({
         where: { id: user.id },
         data: { openproviderHandle: handle },
