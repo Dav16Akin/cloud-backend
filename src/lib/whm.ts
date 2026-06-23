@@ -35,4 +35,21 @@ export const createCpanelSession = async (cpanelUsername: string) => {
   return data.url as string;
 };
 
+export const createDnsZone = async (domain: string, serverIp: string) => {
+  const response = await whmClient.get("/json-api/adddns", {
+    params: {
+      "api.version": 1,
+      domain,
+      ip: serverIp, // the A record's target — your WHM server's IP
+      trueowner: "nupatcloud",
+    },
+  });
+ 
+  if (response.data.metadata.result !== 1) {
+    throw new Error(`WHM failed to create DNS zone for ${domain}`);
+  }
+ 
+  return true;
+};
+
 export default whmClient;

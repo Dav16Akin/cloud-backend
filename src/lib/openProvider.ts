@@ -129,4 +129,21 @@ export const registerDomainWithOpenProvider = async ({
   };
 };
 
+
+export const updateDomainNameservers = async (
+  openproviderId: number,
+  nameservers: string[],
+) => {
+  const response = await openproviderRequest("PUT", `/domains/${openproviderId}`, {
+    name_servers: nameservers.map((ns) => ({ name: ns })),
+  });
+ 
+  const success = response.data?.data?.success;
+  if (!success) {
+    throw new Error("OpenProvider did not confirm the nameserver update");
+  }
+ 
+  return true;
+};
+
 export default openproviderClient;

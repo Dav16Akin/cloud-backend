@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { Request, Response } from "express";
+import { Request, response, Response } from "express";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { sendResp } from "../../utils/resp";
 import { HTTP_STATUS } from "../../utils/statusCodes";
@@ -157,6 +157,9 @@ export const initializeCartPayment = async (
         metadata: { userId: user.id },
       },
     );
+
+    console.log("paystackResponse: ", paystackResponse);
+    
 
     if (!paystackResponse.data.status) {
       return sendResp(
