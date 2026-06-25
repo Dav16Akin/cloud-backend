@@ -43,7 +43,6 @@ export const initializeCartPayment = async (
 
   
     if (needsOpenProviderHandle && !user.openproviderHandle) {
-      console.log(user.houseNumber);
       
       if (!user.houseNumber) {
         return sendResp(

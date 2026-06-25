@@ -30,46 +30,6 @@ export async function provisionOrderItems(orderId: string) {
     if (alreadyDone) continue;
 
     try {
-      if (item.type === "HOSTING" && item.plan) {
-        const cpanelUsername = generateCpanelUsername(
-          order.user.firstName,
-          order.user.lastName,
-        );
-        const cpanelPassword =
-          crypto.randomBytes(12).toString("base64").slice(0, 12) + "A1!";
-
-        const whmResponse = await whmClient.get("/json-api/createacct", {
-          params: {
-            "api.version": 1,
-            username: cpanelUsername,
-            domain: item.domainName ?? `${cpanelUsername}.nupatcloud.com`,
-            password: cpanelPassword,
-            plan: item.plan.name,
-            contactemail: order.user.email,
-            maxsub: item.plan.emails,
-            quota: item.plan.storage.replace(/[^0-9]/g, ""),
-          },
-        });
-
-        if (whmResponse.data.metadata.result === 1) {
-          await prisma.hostingAccount.create({
-            data: {
-              userId: order.userId,
-              planId: item.plan.id,
-              cpanelUsername,
-              domain: item.domainName ?? `${cpanelUsername}.nupatcloud.com`,
-              serverIp: process.env.WHM_HOST!,
-              expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-              orderItemId: item.id,
-            },
-          });
-        } else {
-          console.error(
-            `Hosting provisioning failed for order item ${item.id}:`,
-            whmResponse.data,
-          );
-        }
-      }
 
       if (item.type === "DOMAIN" && item.domainName) {
         const [name, ...extParts] = item.domainName.split(".");
