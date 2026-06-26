@@ -1,6 +1,8 @@
 import axios from 'axios';
 import qs from 'qs';
 import { countryCodeMap } from '../utils/countryCodes';
+import { prisma } from './prisma';
+import { User } from '../generated/prisma';
 
 const WHMCS_URL = `${process.env.WHMCS_URL}/includes/api.php`;
 
@@ -97,4 +99,25 @@ export async function getWhmcsClientDetails(clientId: number) {
     clientid: clientId,
     stats: true,
   });
+}
+
+
+export async function ensureWhmcsClient(user: User): Promise<number> {
+  if (user.whmcsClientId) return user.whmcsClientId;
+
+  // If missing, ATTEMPT TO CREATE IT RIGHT NOW (with retry)
+  const clientId = await createWhmcsClient(user); // calls WHMCS AddClient
+  if (!clientId) {
+    throw new Error(
+      "WHMCS client creation failed — order requires manual reconciliation",
+    );
+  }
+
+  // Update the user record immediately
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { whmcsClientId: clientId },
+  });
+
+  return clientId;
 }

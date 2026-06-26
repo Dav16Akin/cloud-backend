@@ -7,6 +7,7 @@ import { generateCpanelUsername, parseDiskValue } from "../../../utils/utils";
 import whmClient, { createCpanelSession } from "../../../lib/whm";
 import crypto from "crypto";
 import { provisionHostingSchema } from "../validations/account.validations";
+import { parseStorageToMB } from "../../../utils/unitParser";
 
 export const provisionHosting = async (req: AuthRequest, res: Response) => {
   try {
@@ -69,6 +70,7 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
 
     const cpanelPassword =
       crypto.randomBytes(12).toString("base64").slice(0, 12) + "A1!";
+    const quotaMB = parseStorageToMB(plan.storage);
 
     const whmResponse = await whmClient.get("/json-api/createacct", {
       params: {
@@ -79,7 +81,7 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
         plan: plan.name, // must match a package name in WHM
         contactemail: user.email,
         maxsub: plan.emails,
-        quota: plan.storage.replace(/[^0-9]/g, ""), // extract number from "2GB SSD"
+        quota: quotaMB.toString(), // extract number from "2GB SSD"
       },
     });
 
@@ -91,6 +93,14 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
       );
     }
 
+    const cycleDays: Record<string, number> = {
+      monthly: 30,
+      quarterly: 91,
+      yearly: 365,
+    };
+
+    const days = cycleDays[paidOrderItem.billingCycle ?? "yearly"];
+
     const hostingAccount = await prisma.hostingAccount.create({
       data: {
         userId: req.userId!,
@@ -98,7 +108,7 @@ export const provisionHosting = async (req: AuthRequest, res: Response) => {
         cpanelUsername,
         domain,
         serverIp: process.env.WHM_HOST!,
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+        expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
         orderItemId: paidOrderItem.id,
       },
     });
@@ -402,8 +412,10 @@ export const getCpanelLoginLink = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params as { id: string };
 
-    const hosting = await prisma.hostingAccount.findFirst({where: {id, userId: req.userId}});
-    
+    const hosting = await prisma.hostingAccount.findFirst({
+      where: { id, userId: req.userId },
+    });
+
     if (!hosting) {
       return sendResp(res, HTTP_STATUS.NOT_FOUND, "Hosting not found");
     }

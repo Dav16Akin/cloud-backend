@@ -68,9 +68,11 @@ model OTP {
 
 //PLAN
 model Plan {
-  id              String           @id @default(cuid())
-  name            String // "Starter" | "Business" | "Agency"
-  price           Float // in Naira
+  id              String   @id @default(cuid())
+  name            String  @unique// "Starter" | "Business" | "Agency"
+  price           Float 
+  monthlyPrice    Float?
+  quarterlyPrice  Float?// in Naira
   billingCycle    String // "yearly"
   storage         String // "2GB SSD"
   bandwidth       String // "10GB"
@@ -122,6 +124,7 @@ model Order {
   planId       String?
   amount       Float
   status       OrderStatus @default(PENDING)
+  whmcsInvoiceId Int?   @map("whmcs_invoice_id")
   paystackRef  String      @unique
   paystackData Json?
   createdAt    DateTime    @default(now())
@@ -136,6 +139,7 @@ model OrderItem {
   orderId String
   type    OrderItemType
   price   Float
+  billingCycle  String? 
 
   planId     String?
   domainName String?

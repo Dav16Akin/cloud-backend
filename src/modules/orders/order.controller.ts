@@ -5,17 +5,27 @@ import { sendResp } from "../../utils/resp";
 import { HTTP_STATUS } from "../../utils/statusCodes";
 import { prisma } from "../../lib/prisma";
 import paystackClient from "../../lib/paystack";
-import { createWhmcsInvoice, markWhmcsInvoicePaid } from "../../lib/whmcs";
+import {
+  createWhmcsClient,
+  createWhmcsInvoice,
+  ensureWhmcsClient,
+  markWhmcsInvoicePaid,
+} from "../../lib/whmcs";
 import { calculateRetailPriceNGN } from "../../utils/pricing";
 import {
   createOpenProviderCustomerHandle,
   openproviderRequest,
 } from "../../lib/openProvider";
 import { provisionOrderItems } from "./provisionOrderItems";
+import { User } from "../../generated/prisma";
 
 // What the frontend sends us — a cart, not a single plan
 type CartItem =
-  | { type: "HOSTING"; planId: string }
+  | {
+      type: "HOSTING";
+      planId: string;
+      billingCycle?: "monthly" | "quarterly" | "yearly";
+    }
   | { type: "DOMAIN"; domainName: string; extension: string }
   | { type: "SSL"; domainName: string };
 
@@ -36,14 +46,12 @@ export const initializeCartPayment = async (
     const countryCodeMap: Record<string, string> = {
       Nigeria: "NG",
     };
-    
+
     const needsOpenProviderHandle = items.some(
       (item) => item.type === "DOMAIN" || item.type === "SSL",
     );
 
-  
     if (needsOpenProviderHandle && !user.openproviderHandle) {
-      
       if (!user.houseNumber) {
         return sendResp(
           res,
@@ -65,7 +73,6 @@ export const initializeCartPayment = async (
         postcode: user.postcode,
         companyName: user.companyName,
       });
-      
 
       await prisma.user.update({
         where: { id: user.id },
@@ -83,6 +90,7 @@ export const initializeCartPayment = async (
       price: number;
       planId?: string;
       domainName?: string;
+      billingCycle?:string;
     };
 
     const itemsToCreate: DraftItem[] = [];
@@ -99,10 +107,28 @@ export const initializeCartPayment = async (
             `Plan not found: ${item.planId}`,
           );
         }
+
+        const cycle = item.billingCycle ?? "yearly";
+        const priceMap: Record<string, number | null> = {
+          monthly: plan.monthlyPrice,
+          quarterly: plan.quarterlyPrice,
+          yearly: plan.price,
+        };
+        const price = priceMap[cycle];
+
+        if (price == null) {
+          return sendResp(
+            res,
+            HTTP_STATUS.BAD_REQUEST,
+            `${cycle} billing is not available for this plan`,
+          );
+        }
+
         itemsToCreate.push({
           type: "HOSTING",
-          price: plan.price,
+          price,
           planId: plan.id,
+          billingCycle: cycle,
         });
       }
 
@@ -156,7 +182,7 @@ export const initializeCartPayment = async (
         metadata: { userId: user.id },
       },
     );
-    
+
     if (!paystackResponse.data.status) {
       return sendResp(
         res,
@@ -178,6 +204,7 @@ export const initializeCartPayment = async (
             type: item.type,
             price: item.price,
             domainName: item.domainName,
+            billingCycle: item.billingCycle,
             ...(item.planId ? { plan: { connect: { id: item.planId } } } : {}),
           })),
         },
@@ -251,7 +278,7 @@ export const paystackWebhook = async (req: Request, res: Response) => {
         const description = order.items
           .map((i) =>
             i.type === "HOSTING"
-              ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}`
+              ? `Hosting: ${i.plan?.name ?? "Unknown Plan"} (${i.billingCycle ?? "yearly"})`
               : `${i.type}: ${i.domainName}`,
           )
           .join(", ");
@@ -456,17 +483,18 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 
     if (order.user.whmcsClientId) {
       try {
+        const clientId = await ensureWhmcsClient(order.user);
         const description =
           order.items
             .map((i) =>
               i.type === "HOSTING"
-                ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}`
+                ? `Hosting: ${i.plan?.name ?? "Unknown Plan"} (${i.billingCycle ?? "yearly"})`
                 : `${i.type}: ${i.domainName}`,
             )
             .join(", ") || "Order";
 
         const invoice = await createWhmcsInvoice(
-          order.user.whmcsClientId,
+          clientId,
           order.amount,
           description,
           order.paystackRef,

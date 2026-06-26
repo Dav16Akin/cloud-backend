@@ -7,9 +7,7 @@
 
 import { prisma } from "../../lib/prisma";
 import { registerDomainWithOpenProvider, updateDomainNameservers } from "../../lib/openProvider";
-import whmClient, { createDnsZone } from "../../lib/whm";
-import { generateCpanelUsername } from "../../utils/utils";
-import crypto from "crypto";
+import { createDnsZone } from "../../lib/whm";
 
 export async function provisionOrderItems(orderId: string) {
   const order = await prisma.order.findUnique({
