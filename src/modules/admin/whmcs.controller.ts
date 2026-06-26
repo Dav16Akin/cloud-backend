@@ -3,7 +3,11 @@ import { prisma } from "../../lib/prisma";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { sendResp } from "../../utils/resp";
 import { HTTP_STATUS } from "../../utils/statusCodes";
-import { createWhmcsInvoice, ensureWhmcsClient, markWhmcsInvoicePaid } from "../../lib/whmcs";
+import {
+  createWhmcsInvoice,
+  ensureWhmcsClient,
+  markWhmcsInvoicePaid,
+} from "../../lib/whmcs";
 
 export const getSyncGaps = async (req: AuthRequest, res: Response) => {
   try {
@@ -65,45 +69,76 @@ export const syncWhmcsUser = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// export const reconcileOrder = async (req: AuthRequest, res: Response) => {
-//   try {
-//     const { orderId } = req.params as { orderId: string };
-//     const order = await prisma.order.findUnique({
-//       where: { id: orderId, userId: req.userId },
-//       include: { user: true, items: { include: { plan: true } } },
-//     }); 
-//     if (!order) {
-//       return sendResp(res, HTTP_STATUS.NOT_FOUND, "Order not found");
-//     }
+export const reconcileOrder = async (req: AuthRequest, res: Response) => {
+  try {
+    const { orderId } = req.params as { orderId: string };
 
-//     const clientId = await ensureWhmcsClient(order.user)
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { user: true, items: { include: { plan: true } } },
+    });
 
-//     let invoiceId = order.whmcsInvoiceId
+    if (!order) {
+      return sendResp(res, HTTP_STATUS.NOT_FOUND, "Order not found");
+    }
 
-//     if(!invoiceId) {
-//         const description = order.items.map((i) => {
-//             i.type === "HOSTING" ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}` : `${i.type}: ${i.domainName}`
-//         }).join(", ") || "Order"
+    if (order.status !== "PAID") {
+      return sendResp(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        "Only paid orders can be reconciled with WHMCS",
+      );
+    }
 
+    const clientId = await ensureWhmcsClient(order.user);
 
-//         const invoice = await createWhmcsInvoice(
-//             clientId,
-//             order.amount,
-//             description,
-//             order.paystackRef
-//         )
+    let invoiceId = order.whmcsInvoiceId;
 
-//         invoiceId = invoice.invoiceid
+    if (!invoiceId) {
+      const description =
+        order.items
+          .map((i) =>
+            i.type === "HOSTING"
+              ? `Hosting: ${i.plan?.name ?? "Unknown Plan"}`
+              : `${i.type}: ${i.domainName}`,
+          )
+          .join(", ") || "Order";
 
-//         await markWhmcsInvoicePaid(invoiceId, order.amount, order.paystackRef)
-//     }
-//   } catch (error) {
-//     return sendResp(
-//       res,
-//       HTTP_STATUS.SERVER_ERROR,
-//       "Failed to reconcile order",
-//       null,
-//       error instanceof Error ? error.message : "Unknown error",
-//     );
-//   }
-// };
+      const invoice = await createWhmcsInvoice(
+        clientId,
+        order.amount,
+        description,
+        order.paystackRef,
+      );
+
+      if (!invoice.invoiceid) {
+        throw new Error("WHMCS did not return an invoice ID");
+      }
+
+      invoiceId = invoice.invoiceid;
+
+      await markWhmcsInvoicePaid(invoiceId as number, order.amount, order.paystackRef);
+
+      // Persist it — this is what was missing. Without this, every
+      // re-run of reconcileOrder would create a brand new duplicate
+      // invoice instead of recognizing this one's already synced.
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { whmcsInvoiceId: invoiceId },
+      });
+    }
+
+    return sendResp(res, HTTP_STATUS.OK, "Order reconciled with WHMCS", {
+      whmcsClientId: clientId,
+      whmcsInvoiceId: invoiceId,
+    });
+  } catch (error) {
+    return sendResp(
+      res,
+      HTTP_STATUS.SERVER_ERROR,
+      "Failed to reconcile order",
+      null,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};

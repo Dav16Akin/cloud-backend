@@ -23,16 +23,19 @@ export const createCpanelSession = async (cpanelUsername: string) => {
   });
 
   console.log(response);
-  
 
   const data = response.data.data;
   console.log(data);
-  
+
   if (!data.url) {
     throw new Error("WHM did not return a session URL");
   }
 
-  return data.url as string;
+  const sessionUrl = new URL(data.url);
+  sessionUrl.protocol = "https:";
+  sessionUrl.hostname = "host.nupatcloud.com";
+
+  return sessionUrl.toString();
 };
 
 export const createDnsZone = async (domain: string, serverIp: string) => {
@@ -44,11 +47,11 @@ export const createDnsZone = async (domain: string, serverIp: string) => {
       trueowner: "nupatcloud",
     },
   });
- 
+
   if (response.data.metadata.result !== 1) {
     throw new Error(`WHM failed to create DNS zone for ${domain}`);
   }
- 
+
   return true;
 };
 

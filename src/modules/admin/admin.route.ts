@@ -1,13 +1,14 @@
 import { Router } from "express";
 
-import { getSyncGaps, syncWhmcsUser } from "./whmcs.controller";
-import { isAdmin } from "../../middleware/admin.middleware";
+import { getSyncGaps, reconcileOrder, syncWhmcsUser } from "./whmcs.controller";
+import { requireAdmin } from "../../middleware/admin.middleware";
+import { protect } from "../../middleware/auth.middleware";
 
 
 const router = Router();
 
-router.get("/whmcs-sync-gaps", isAdmin, getSyncGaps);
-router.post("/users/:userId/sync-whmcs", isAdmin, syncWhmcsUser);
-// router.post("/orders/:orderId/reconcile", isAdmin, reconcileOrder);
+router.get("/whmcs-sync-gaps",protect, requireAdmin, getSyncGaps);
+router.post("/:userId/sync-whmcs",protect, requireAdmin, syncWhmcsUser);
+router.post("/reconcile-order/:orderId", protect, requireAdmin, reconcileOrder);
 
 export default router;

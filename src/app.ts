@@ -11,6 +11,7 @@ import orderRoutes from "./modules/orders/order.route";
 import domainRoutes from "./modules/domains/domains.route"
 import billingRoutes from "./modules/billing/billing.routes"
 import { startTokenCleanupJob } from "./jobs/cleanupExpiredTokens";
+import adminRoutes from "./modules/admin/admin.route";
 
 const app = express();
 
@@ -48,5 +49,6 @@ app.use("/api", hostingRoutes);
 app.use("/api", orderRoutes);
 app.use("/api", domainRoutes)
 app.use('/api/billing', billingRoutes);
+app.use("/api/admin", adminRoutes);
 
 export default app;
